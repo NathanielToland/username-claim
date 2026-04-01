@@ -8,7 +8,7 @@ import {
   useReadContract,
   useSwitchChain,
   useWaitForTransactionReceipt,
-  useWalletClient,
+  useWriteContract,
 } from "wagmi";
 import { base } from "wagmi/chains";
 import { ActionBar } from "@/components/ActionBar";
@@ -46,7 +46,6 @@ export function ClaimWorkspace({ initialHandle = "" }: Props) {
   });
 
   const { address, chainId, isConnected } = useAccount();
-  const { data: walletClient } = useWalletClient();
   const publicClient = usePublicClient({ chainId: base.id });
   const { switchChainAsync, isPending: isSwitchingChain } = useSwitchChain();
   const normalizedInput = useMemo(() => normalizeHandle(input), [input]);
@@ -63,6 +62,7 @@ export function ClaimWorkspace({ initialHandle = "" }: Props) {
     },
   });
 
+  const { error, isPending, writeContractAsync, reset } = useWriteContract();
   const receipt = useWaitForTransactionReceipt({
     hash: activeHash,
     query: {
@@ -185,6 +185,7 @@ export function ClaimWorkspace({ initialHandle = "" }: Props) {
     setActiveHash(undefined);
     setIsSubmittingClaim(false);
     setActionMessage("Claim state reset. You can check and submit again.");
+    reset();
   };
 
   const runClaim = async () => {
@@ -200,11 +201,6 @@ export function ClaimWorkspace({ initialHandle = "" }: Props) {
       } catch (switchError) {
         setActionMessage(switchError instanceof Error ? switchError.message : "Switch to Base and try again.");
       }
-      return;
-    }
-
-    if (!walletClient || !walletClient.account) {
-      setActionMessage("Wallet client is not ready. Reconnect the wallet and try again.");
       return;
     }
 
@@ -237,13 +233,12 @@ export function ClaimWorkspace({ initialHandle = "" }: Props) {
     setActionMessage("Opening wallet confirmation...");
 
     try {
-      const hash = await walletClient.writeContract({
-        account: walletClient.account,
-        chain: base,
+      const hash = await writeContractAsync({
         abi: usernameAbi,
         address: CONTRACT_ADDRESS,
         functionName: "claim",
         args: [normalizedInput],
+        chainId: base.id,
       });
       setActiveHash(hash);
       setActionMessage("Transaction submitted. Waiting for Base confirmation...");
