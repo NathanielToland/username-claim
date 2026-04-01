@@ -130,12 +130,12 @@ export function ClaimWorkspace({ initialHandle = "" }: Props) {
       return undefined;
     }
 
-    const request = window.okxwallet?.request ?? window.ethereum?.request;
-    if (!request) {
+    const provider = window.okxwallet ?? window.ethereum;
+    if (!provider?.request) {
       return undefined;
     }
 
-    return { request };
+    return provider as EvmProvider;
   };
 
   const requestWithTimeout = async <T,>(provider: EvmProvider, method: string, params: unknown[], timeoutMs = 20000) => {
@@ -249,8 +249,6 @@ export function ClaimWorkspace({ initialHandle = "" }: Props) {
     if (!address) {
       throw new Error("Wallet address is unavailable.");
     }
-
-    await requestWithTimeout(provider, "eth_requestAccounts", [], 15000);
 
     if (!onBase) {
       await requestWithTimeout(provider, "wallet_switchEthereumChain", [{ chainId: baseChainHex }], 15000);
