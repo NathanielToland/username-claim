@@ -6,7 +6,7 @@ type Props = {
 
 export function ClaimUsernameButton({ disabled, busy, onClick }: Props) {
   return (
-    <button className="claim-button" disabled={disabled || busy} onClick={onClick}>
+    <button type="button" className="claim-button" disabled={disabled || busy} onClick={onClick}>
       {busy ? "Submitting Claim..." : "Claim Username"}
     </button>
   );

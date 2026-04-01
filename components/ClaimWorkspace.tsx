@@ -28,6 +28,7 @@ export function ClaimWorkspace({ initialHandle = "" }: Props) {
   const [input, setInput] = useState(initialHandle);
   const [checkedHandle, setCheckedHandle] = useState(normalizeHandle(initialHandle));
   const [hasChecked, setHasChecked] = useState(Boolean(initialHandle));
+  const [actionMessage, setActionMessage] = useState("");
   const { address, isConnected } = useAccount();
   const normalizedInput = useMemo(() => normalizeHandle(input), [input]);
   const handleIsValid = isHandleValid(normalizedInput);
@@ -57,6 +58,7 @@ export function ClaimWorkspace({ initialHandle = "" }: Props) {
 
   useEffect(() => {
     if (receipt.isSuccess && hash && address) {
+      setActionMessage("Claim confirmed and registry data refreshed.");
       trackTransaction(APP_ID, APP_NAME_LABEL, address, hash);
       void ownerQuery.refetch();
       void ownedNameQuery.refetch();
@@ -95,42 +97,79 @@ export function ClaimWorkspace({ initialHandle = "" }: Props) {
     detail = "Claim confirmed. The registry record is now assigned.";
   }
 
-  const canClaim =
-    isConnected &&
-    handleIsValid &&
-    hasChecked &&
-    checkedHandle === normalizedInput &&
-    availabilityStatus === "available" &&
-    !userOwnsName;
+  const runCheck = async () => {
+    if (!normalizedInput) {
+      setActionMessage("Enter a username before checking availability.");
+      return;
+    }
+
+    if (!handleIsValid) {
+      setActionMessage("Use 2 to 20 characters with letters, numbers, dots, or hyphens.");
+      return;
+    }
+
+    setActionMessage("Checking live registry status...");
+    setCheckedHandle(normalizedInput);
+    setHasChecked(true);
+    await ownerQuery.refetch();
+  };
+
+  const runClaim = async () => {
+    if (!isConnected) {
+      setActionMessage("Connect a wallet before submitting a claim.");
+      return;
+    }
+
+    if (!normalizedInput) {
+      setActionMessage("Enter a username to continue.");
+      return;
+    }
+
+    if (!handleIsValid) {
+      setActionMessage("This username format is invalid.");
+      return;
+    }
+
+    if (userOwnsName) {
+      setActionMessage(`This wallet already holds @${ownedName}.`);
+      return;
+    }
+
+    if (!hasChecked || checkedHandle !== normalizedInput) {
+      await runCheck();
+      setActionMessage("Availability refreshed. Review the status, then press claim again.");
+      return;
+    }
+
+    if (availabilityStatus !== "available") {
+      setActionMessage(detail);
+      return;
+    }
+
+    setActionMessage("Opening wallet confirmation...");
+
+    try {
+      writeContract({
+        abi: usernameAbi,
+        address: CONTRACT_ADDRESS,
+        functionName: "claim",
+        args: [normalizedInput],
+      });
+    } catch (claimError) {
+      setActionMessage(claimError instanceof Error ? claimError.message : "Unable to open the claim request.");
+    }
+  };
+
+  const canClaim = isConnected && handleIsValid && !userOwnsName && !isPending && !receipt.isPending;
 
   return (
     <div className="claim-workspace">
-      <UsernameClaimInput
-        value={input}
-        onChange={setInput}
-        onCheck={() => {
-          setCheckedHandle(normalizedInput);
-          setHasChecked(true);
-          void ownerQuery.refetch();
-        }}
-        disabled={!normalizedInput || !handleIsValid}
-      />
+      <UsernameClaimInput value={input} onChange={setInput} onCheck={() => void runCheck()} disabled={ownerQuery.isFetching} />
 
       <AvailabilityIndicator status={availabilityStatus} detail={detail} />
 
       <ActionBar>
-        <ClaimUsernameButton
-          busy={isPending || receipt.isPending}
-          disabled={!canClaim}
-          onClick={() =>
-            writeContract({
-              abi: usernameAbi,
-              address: CONTRACT_ADDRESS,
-              functionName: "claim",
-              args: [normalizedInput],
-            })
-          }
-        />
+        <ClaimUsernameButton busy={isPending || receipt.isPending} disabled={!canClaim} onClick={() => void runClaim()} />
         <Link className="ghost-link" href={normalizedInput ? `/usernames/${normalizedInput}` : "/registry"}>
           View Detail
         </Link>
@@ -151,6 +190,7 @@ export function ClaimWorkspace({ initialHandle = "" }: Props) {
         />
       </div>
 
+      {actionMessage ? <p className="feedback neutral">{actionMessage}</p> : null}
       {error ? <p className="feedback error">{error instanceof Error ? error.message : "Claim failed."}</p> : null}
       {receipt.isSuccess && hash ? (
         <p className="feedback success">
@@ -166,5 +206,3 @@ export function ClaimWorkspace({ initialHandle = "" }: Props) {
     </div>
   );
 }
-
-

@@ -25,7 +25,7 @@ export function UsernameClaimInput({ value, onChange, onCheck, disabled }: Props
           />
         </div>
       </label>
-      <button className="secondary-button" onClick={onCheck} disabled={disabled}>
+      <button type="button" className="secondary-button" onClick={onCheck} disabled={disabled}>
         Check Availability
       </button>
     </section>
