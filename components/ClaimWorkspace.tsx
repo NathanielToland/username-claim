@@ -2,15 +2,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import {
-  useAccount,
-  usePublicClient,
-  useReadContract,
-  useSwitchChain,
-  useWaitForTransactionReceipt,
-  useWriteContractSync,
-} from "wagmi";
+import { useAccount, usePublicClient, useReadContract, useWaitForTransactionReceipt } from "wagmi";
 import { base } from "wagmi/chains";
+import { encodeFunctionData, type Address } from "viem";
 import { ActionBar } from "@/components/ActionBar";
 import { AvailabilityIndicator } from "@/components/AvailabilityIndicator";
 import { ClaimUsernameButton } from "@/components/ClaimUsernameButton";
@@ -22,6 +16,7 @@ import { isHandleValid, normalizeHandle, shortenAddress } from "@/lib/format";
 import { trackTransaction } from "@/utils/track";
 
 const zeroAddress = "0x0000000000000000000000000000000000000000";
+const baseChainHex = "0x2105";
 
 type Props = {
   initialHandle?: string;
@@ -33,6 +28,23 @@ type AvailabilityState = {
   owner?: string;
   handle?: string;
 };
+
+type EvmProvider = {
+  request: (args: { method: string; params?: unknown[] }) => Promise<unknown>;
+};
+
+declare global {
+  interface Window {
+    okxwallet?: {
+      isOkxWallet?: boolean;
+      request?: (args: { method: string; params?: unknown[] }) => Promise<unknown>;
+    };
+    ethereum?: {
+      isOkxWallet?: boolean;
+      request?: (args: { method: string; params?: unknown[] }) => Promise<unknown>;
+    };
+  }
+}
 
 export function ClaimWorkspace({ initialHandle = "" }: Props) {
   const [input, setInput] = useState(initialHandle);
@@ -47,10 +59,11 @@ export function ClaimWorkspace({ initialHandle = "" }: Props) {
 
   const { address, chainId, isConnected } = useAccount();
   const publicClient = usePublicClient({ chainId: base.id });
-  const { switchChainAsync, isPending: isSwitchingChain } = useSwitchChain();
   const normalizedInput = useMemo(() => normalizeHandle(input), [input]);
   const handleIsValid = isHandleValid(normalizedInput);
   const onBase = chainId === base.id;
+  const isOkxWallet =
+    typeof window !== "undefined" && Boolean(window.okxwallet?.isOkxWallet || window.ethereum?.isOkxWallet);
 
   const ownedNameQuery = useReadContract({
     abi: usernameAbi,
@@ -62,7 +75,6 @@ export function ClaimWorkspace({ initialHandle = "" }: Props) {
     },
   });
 
-  const { error, isPending, writeContractSync, reset } = useWriteContractSync();
   const receipt = useWaitForTransactionReceipt({
     hash: activeHash,
     query: {
@@ -93,19 +105,6 @@ export function ClaimWorkspace({ initialHandle = "" }: Props) {
   }, [receipt.isError]);
 
   useEffect(() => {
-    if (!activeHash && !isSubmittingClaim) return;
-    if (availability.handle && availability.handle !== normalizedInput) {
-      setActiveHash(undefined);
-      setIsSubmittingClaim(false);
-      reset();
-      setActionMessage("Previous claim state cleared for the new handle.");
-    }
-  }, [activeHash, availability.handle, isSubmittingClaim, normalizedInput, reset]);
-
-  const ownedName = (ownedNameQuery.data as string | undefined) ?? "";
-  const userOwnsName = ownedName.length > 0;
-
-  useEffect(() => {
     if (!normalizedInput) {
       setAvailability({
         status: "idle",
@@ -123,11 +122,45 @@ export function ClaimWorkspace({ initialHandle = "" }: Props) {
     }
   }, [handleIsValid, normalizedInput]);
 
+  const ownedName = (ownedNameQuery.data as string | undefined) ?? "";
+  const userOwnsName = ownedName.length > 0;
+
+  const getEvmProvider = (): EvmProvider | undefined => {
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+
+    const request = window.okxwallet?.request ?? window.ethereum?.request;
+    if (!request) {
+      return undefined;
+    }
+
+    return { request };
+  };
+
+  const requestWithTimeout = async <T,>(provider: EvmProvider, method: string, params: unknown[], timeoutMs = 20000) => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    try {
+      return await Promise.race([
+        provider.request({ method, params }) as Promise<T>,
+        new Promise<T>((_, reject) => {
+          timer = setTimeout(() => {
+            reject(new Error("The wallet request timed out. Please reopen OKX Wallet and try again."));
+          }, timeoutMs);
+        }),
+      ]);
+    } finally {
+      if (timer) {
+        clearTimeout(timer);
+      }
+    }
+  };
+
   const clearStaleClaimState = (message?: string) => {
     if (activeHash || isSubmittingClaim || receipt.isPending || receipt.isError) {
       setActiveHash(undefined);
       setIsSubmittingClaim(false);
-      reset();
       if (message) setActionMessage(message);
     }
   };
@@ -205,20 +238,45 @@ export function ClaimWorkspace({ initialHandle = "" }: Props) {
     setActiveHash(undefined);
     setIsSubmittingClaim(false);
     setActionMessage("Claim state reset. You can check and submit again.");
-    reset();
   };
 
-  const runClaim = () => {
-    if (!isConnected) {
-      setActionMessage("Connect a wallet before submitting a claim.");
-      return;
+  const claimViaInjectedWallet = async () => {
+    const provider = getEvmProvider();
+    if (!provider) {
+      throw new Error("OKX wallet provider is unavailable.");
     }
 
+    if (!address) {
+      throw new Error("Wallet address is unavailable.");
+    }
+
+    await requestWithTimeout(provider, "eth_requestAccounts", [], 15000);
+
     if (!onBase) {
-      setActionMessage("Switching your wallet to Base. After it completes, press Claim Username again.");
-      void switchChainAsync({ chainId: base.id }).catch((switchError) => {
-        setActionMessage(switchError instanceof Error ? switchError.message : "Switch to Base and try again.");
-      });
+      await requestWithTimeout(provider, "wallet_switchEthereumChain", [{ chainId: baseChainHex }], 15000);
+    }
+
+    const data = encodeFunctionData({
+      abi: usernameAbi,
+      functionName: "claim",
+      args: [normalizedInput],
+    });
+
+    const result = (await requestWithTimeout(provider, "eth_sendTransaction", [
+      {
+        from: address as Address,
+        to: CONTRACT_ADDRESS,
+        data,
+        chainId: baseChainHex,
+      },
+    ])) as `0x${string}`;
+
+    return result;
+  };
+
+  const runClaim = async () => {
+    if (!isConnected) {
+      setActionMessage("Connect a wallet before submitting a claim.");
       return;
     }
 
@@ -238,7 +296,7 @@ export function ClaimWorkspace({ initialHandle = "" }: Props) {
     }
 
     if (availability.handle !== normalizedInput || availability.status === "idle" || availability.status === "checking") {
-      void runCheck();
+      await runCheck();
       return;
     }
 
@@ -251,25 +309,20 @@ export function ClaimWorkspace({ initialHandle = "" }: Props) {
     setActionMessage("Opening wallet confirmation...");
 
     try {
-      writeContractSync({
-        abi: usernameAbi,
-        address: CONTRACT_ADDRESS,
-        functionName: "claim",
-        args: [normalizedInput],
-        chainId: base.id,
-      });
+      const hash = await claimViaInjectedWallet();
+      setActiveHash(hash);
+      setActionMessage("Transaction submitted. Waiting for Base confirmation...");
     } catch (claimError) {
       setIsSubmittingClaim(false);
       setActionMessage(claimError instanceof Error ? claimError.message : "Unable to open the claim request.");
     }
   };
 
-  const canClaim = isConnected && handleIsValid && !userOwnsName && !isSubmittingClaim && !receipt.isPending && !isSwitchingChain;
+  const canClaim = isConnected && handleIsValid && !userOwnsName && !isSubmittingClaim && !receipt.isPending;
   const handleInputChange = (value: string) => {
     if (activeHash || isSubmittingClaim || receipt.isPending || receipt.isError) {
       setActiveHash(undefined);
       setIsSubmittingClaim(false);
-      reset();
     }
     setInput(value);
   };
@@ -281,7 +334,7 @@ export function ClaimWorkspace({ initialHandle = "" }: Props) {
       <AvailabilityIndicator status={availability.status === "error" ? "invalid" : availability.status} detail={availability.detail} />
 
       <ActionBar>
-        <ClaimUsernameButton busy={isSubmittingClaim || receipt.isPending || isSwitchingChain} disabled={!canClaim} onClick={runClaim} />
+        <ClaimUsernameButton busy={isSubmittingClaim || receipt.isPending} disabled={!canClaim} onClick={runClaim} />
         <Link className="ghost-link" href={normalizedInput ? `/usernames/${normalizedInput}` : "/registry"}>
           View Detail
         </Link>
@@ -331,6 +384,7 @@ export function ClaimWorkspace({ initialHandle = "" }: Props) {
           This wallet already holds <strong>@{ownedName}</strong>. The current contract keeps a single visible username record for the address.
         </p>
       ) : null}
+      {isOkxWallet ? <p className="feedback neutral">OKX Wallet detected. Using its native transaction flow.</p> : null}
     </div>
   );
 }
