@@ -92,6 +92,16 @@ export function ClaimWorkspace({ initialHandle = "" }: Props) {
     }
   }, [receipt.isError]);
 
+  useEffect(() => {
+    if (!activeHash && !isSubmittingClaim) return;
+    if (availability.handle && availability.handle !== normalizedInput) {
+      setActiveHash(undefined);
+      setIsSubmittingClaim(false);
+      reset();
+      setActionMessage("Previous claim state cleared for the new handle.");
+    }
+  }, [activeHash, availability.handle, isSubmittingClaim, normalizedInput, reset]);
+
   const ownedName = (ownedNameQuery.data as string | undefined) ?? "";
   const userOwnsName = ownedName.length > 0;
 
@@ -113,7 +123,18 @@ export function ClaimWorkspace({ initialHandle = "" }: Props) {
     }
   }, [handleIsValid, normalizedInput]);
 
+  const clearStaleClaimState = (message?: string) => {
+    if (activeHash || isSubmittingClaim || receipt.isPending || receipt.isError) {
+      setActiveHash(undefined);
+      setIsSubmittingClaim(false);
+      reset();
+      if (message) setActionMessage(message);
+    }
+  };
+
   const runCheck = async () => {
+    clearStaleClaimState("Checking live registry status...");
+
     if (!normalizedInput) {
       setActionMessage("Enter a username before checking availability.");
       return;
@@ -139,7 +160,6 @@ export function ClaimWorkspace({ initialHandle = "" }: Props) {
       return;
     }
 
-    setActionMessage("Checking live registry status...");
     setCheckedHandle(normalizedInput);
     setAvailability({
       status: "checking",
@@ -249,10 +269,18 @@ export function ClaimWorkspace({ initialHandle = "" }: Props) {
   };
 
   const canClaim = isConnected && handleIsValid && !userOwnsName && !isSubmittingClaim && !receipt.isPending && !isSwitchingChain;
+  const handleInputChange = (value: string) => {
+    if (activeHash || isSubmittingClaim || receipt.isPending || receipt.isError) {
+      setActiveHash(undefined);
+      setIsSubmittingClaim(false);
+      reset();
+    }
+    setInput(value);
+  };
 
   return (
     <div className="claim-workspace">
-      <UsernameClaimInput value={input} onChange={setInput} onCheck={() => void runCheck()} disabled={availability.status === "checking"} />
+      <UsernameClaimInput value={input} onChange={handleInputChange} onCheck={() => void runCheck()} disabled={availability.status === "checking"} />
 
       <AvailabilityIndicator status={availability.status === "error" ? "invalid" : availability.status} detail={availability.detail} />
 
