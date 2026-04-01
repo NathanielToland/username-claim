@@ -260,6 +260,52 @@ export function ClaimWorkspace({ initialHandle = "" }: Props) {
       args: [normalizedInput],
     });
 
+    if (provider === window.okxwallet || isOkxWallet) {
+      const sendCallsResult = (await requestWithTimeout(provider, "wallet_sendCalls", [
+        {
+          version: "2.0.0",
+          from: address as Address,
+          chainId: baseChainHex,
+          atomicRequired: true,
+          calls: [
+            {
+              to: CONTRACT_ADDRESS,
+              data,
+              value: "0x0",
+            },
+          ],
+        },
+      ])) as { id?: string };
+
+      const callId = sendCallsResult && typeof sendCallsResult === "object" ? sendCallsResult.id : undefined;
+      if (!callId) {
+        throw new Error("OKX Wallet did not return a transaction id.");
+      }
+
+      const startedAt = Date.now();
+      while (Date.now() - startedAt < 60000) {
+        const statusResult = (await requestWithTimeout(provider, "wallet_getCallsStatus", [callId], 15000)) as {
+          status?: number;
+          receipts?: Array<{ transactionHash?: `0x${string}` }>;
+        };
+
+        if (statusResult?.status === 200) {
+          const hash = statusResult.receipts?.[0]?.transactionHash;
+          if (hash) {
+            return hash;
+          }
+        }
+
+        if (statusResult?.status === 400 || statusResult?.status === 500) {
+          throw new Error("OKX Wallet rejected or failed the transaction.");
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+      }
+
+      throw new Error("The transaction is still pending in OKX Wallet.");
+    }
+
     const result = (await requestWithTimeout(provider, "eth_sendTransaction", [
       {
         from: address as Address,
@@ -386,3 +432,4 @@ export function ClaimWorkspace({ initialHandle = "" }: Props) {
     </div>
   );
 }
+
