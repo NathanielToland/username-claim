@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useAccount, usePublicClient, useReadContract, useWaitForTransactionReceipt } from "wagmi";
+import { useAccount, usePublicClient, useReadContract, useWaitForTransactionReceipt, useWalletClient } from "wagmi";
 import { base } from "wagmi/chains";
 import { encodeFunctionData, type Address } from "viem";
 import { ActionBar } from "@/components/ActionBar";
@@ -27,10 +27,6 @@ type AvailabilityState = {
   detail: string;
   owner?: string;
   handle?: string;
-};
-
-type EvmProvider = {
-  request: (args: { method: string; params?: unknown[] }) => Promise<unknown>;
 };
 
 declare global {
@@ -59,6 +55,7 @@ export function ClaimWorkspace({ initialHandle = "" }: Props) {
 
   const { address, chainId, isConnected } = useAccount();
   const publicClient = usePublicClient({ chainId: base.id });
+  const walletClientQuery = useWalletClient({ chainId: base.id });
   const normalizedInput = useMemo(() => normalizeHandle(input), [input]);
   const handleIsValid = isHandleValid(normalizedInput);
   const onBase = chainId === base.id;
@@ -124,38 +121,6 @@ export function ClaimWorkspace({ initialHandle = "" }: Props) {
 
   const ownedName = (ownedNameQuery.data as string | undefined) ?? "";
   const userOwnsName = ownedName.length > 0;
-
-  const getEvmProvider = (): EvmProvider | undefined => {
-    if (typeof window === "undefined") {
-      return undefined;
-    }
-
-    const provider = window.okxwallet ?? window.ethereum;
-    if (!provider?.request) {
-      return undefined;
-    }
-
-    return provider as EvmProvider;
-  };
-
-  const requestWithTimeout = async <T,>(provider: EvmProvider, method: string, params: unknown[], timeoutMs = 20000) => {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-
-    try {
-      return await Promise.race([
-        provider.request({ method, params }) as Promise<T>,
-        new Promise<T>((_, reject) => {
-          timer = setTimeout(() => {
-            reject(new Error("The wallet request timed out. Please reopen OKX Wallet and try again."));
-          }, timeoutMs);
-        }),
-      ]);
-    } finally {
-      if (timer) {
-        clearTimeout(timer);
-      }
-    }
-  };
 
   const clearStaleClaimState = (message?: string) => {
     if (activeHash || isSubmittingClaim || receipt.isPending || receipt.isError) {
@@ -241,17 +206,13 @@ export function ClaimWorkspace({ initialHandle = "" }: Props) {
   };
 
   const claimViaInjectedWallet = async () => {
-    const provider = getEvmProvider();
-    if (!provider) {
-      throw new Error("OKX wallet provider is unavailable.");
+    const walletClient = walletClientQuery.data;
+    if (!walletClient) {
+      throw new Error("Wallet client is unavailable.");
     }
 
     if (!address) {
       throw new Error("Wallet address is unavailable.");
-    }
-
-    if (!onBase) {
-      await requestWithTimeout(provider, "wallet_switchEthereumChain", [{ chainId: baseChainHex }], 15000);
     }
 
     const data = encodeFunctionData({
@@ -260,62 +221,14 @@ export function ClaimWorkspace({ initialHandle = "" }: Props) {
       args: [normalizedInput],
     });
 
-    if (provider === window.okxwallet || isOkxWallet) {
-      const sendCallsResult = (await requestWithTimeout(provider, "wallet_sendCalls", [
-        {
-          version: "2.0.0",
-          from: address as Address,
-          chainId: baseChainHex,
-          atomicRequired: true,
-          calls: [
-            {
-              to: CONTRACT_ADDRESS,
-              data,
-              value: "0x0",
-            },
-          ],
-        },
-      ])) as { id?: string };
+    const hash = await walletClient.sendTransaction({
+      account: address as Address,
+      chain: base,
+      to: CONTRACT_ADDRESS,
+      data,
+    });
 
-      const callId = sendCallsResult && typeof sendCallsResult === "object" ? sendCallsResult.id : undefined;
-      if (!callId) {
-        throw new Error("OKX Wallet did not return a transaction id.");
-      }
-
-      const startedAt = Date.now();
-      while (Date.now() - startedAt < 60000) {
-        const statusResult = (await requestWithTimeout(provider, "wallet_getCallsStatus", [callId], 15000)) as {
-          status?: number;
-          receipts?: Array<{ transactionHash?: `0x${string}` }>;
-        };
-
-        if (statusResult?.status === 200) {
-          const hash = statusResult.receipts?.[0]?.transactionHash;
-          if (hash) {
-            return hash;
-          }
-        }
-
-        if (statusResult?.status === 400 || statusResult?.status === 500) {
-          throw new Error("OKX Wallet rejected or failed the transaction.");
-        }
-
-        await new Promise((resolve) => setTimeout(resolve, 2000));
-      }
-
-      throw new Error("The transaction is still pending in OKX Wallet.");
-    }
-
-    const result = (await requestWithTimeout(provider, "eth_sendTransaction", [
-      {
-        from: address as Address,
-        to: CONTRACT_ADDRESS,
-        data,
-        chainId: baseChainHex,
-      },
-    ])) as `0x${string}`;
-
-    return result;
+    return hash;
   };
 
   const runClaim = async () => {
@@ -432,4 +345,6 @@ export function ClaimWorkspace({ initialHandle = "" }: Props) {
     </div>
   );
 }
+
+
 
