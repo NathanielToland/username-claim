@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useAccount, usePublicClient, useReadContract, useWaitForTransactionReceipt, useWalletClient } from "wagmi";
+import { useAccount, usePublicClient, useReadContract, useSwitchChain, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
 import { base } from "wagmi/chains";
 import { encodeFunctionData, type Address } from "viem";
 import { ActionBar } from "@/components/ActionBar";
@@ -16,7 +16,6 @@ import { isHandleValid, normalizeHandle, shortenAddress } from "@/lib/format";
 import { trackTransaction } from "@/utils/track";
 
 const zeroAddress = "0x0000000000000000000000000000000000000000";
-const baseChainHex = "0x2105";
 
 type Props = {
   initialHandle?: string;
@@ -28,19 +27,6 @@ type AvailabilityState = {
   owner?: string;
   handle?: string;
 };
-
-declare global {
-  interface Window {
-    okxwallet?: {
-      isOkxWallet?: boolean;
-      request?: (args: { method: string; params?: unknown[] }) => Promise<unknown>;
-    };
-    ethereum?: {
-      isOkxWallet?: boolean;
-      request?: (args: { method: string; params?: unknown[] }) => Promise<unknown>;
-    };
-  }
-}
 
 export function ClaimWorkspace({ initialHandle = "" }: Props) {
   const [input, setInput] = useState(initialHandle);
@@ -54,13 +40,12 @@ export function ClaimWorkspace({ initialHandle = "" }: Props) {
   });
 
   const { address, chainId, isConnected } = useAccount();
+  const { switchChainAsync, isPending: isSwitchingChain } = useSwitchChain();
+  const { writeContractAsync, isPending: isWriting, error: writeError, reset: resetWrite } = useWriteContract();
   const publicClient = usePublicClient({ chainId: base.id });
-  const walletClientQuery = useWalletClient({ chainId: base.id });
   const normalizedInput = useMemo(() => normalizeHandle(input), [input]);
   const handleIsValid = isHandleValid(normalizedInput);
   const onBase = chainId === base.id;
-  const isOkxWallet =
-    typeof window !== "undefined" && Boolean(window.okxwallet?.isOkxWallet || window.ethereum?.isOkxWallet);
 
   const ownedNameQuery = useReadContract({
     abi: usernameAbi,
@@ -102,6 +87,16 @@ export function ClaimWorkspace({ initialHandle = "" }: Props) {
   }, [receipt.isError]);
 
   useEffect(() => {
+    if (writeError) {
+      setIsSubmittingClaim(false);
+      setActionMessage(writeError.message || "Unable to open the claim request.");
+      if (typeof window !== "undefined") {
+        window.open("https://walletconnect.com", "_blank", "noopener,noreferrer");
+      }
+    }
+  }, [writeError]);
+
+  useEffect(() => {
     if (!normalizedInput) {
       setAvailability({
         status: "idle",
@@ -123,9 +118,10 @@ export function ClaimWorkspace({ initialHandle = "" }: Props) {
   const userOwnsName = ownedName.length > 0;
 
   const clearStaleClaimState = (message?: string) => {
-    if (activeHash || isSubmittingClaim || receipt.isPending || receipt.isError) {
+    if (activeHash || isSubmittingClaim || receipt.isPending || receipt.isError || isWriting) {
       setActiveHash(undefined);
       setIsSubmittingClaim(false);
+      resetWrite();
       if (message) setActionMessage(message);
     }
   };
@@ -202,15 +198,11 @@ export function ClaimWorkspace({ initialHandle = "" }: Props) {
   const resetTransactionState = () => {
     setActiveHash(undefined);
     setIsSubmittingClaim(false);
+    resetWrite();
     setActionMessage("Claim state reset. You can check and submit again.");
   };
 
-  const claimViaInjectedWallet = async () => {
-    const walletClient = walletClientQuery.data;
-    if (!walletClient) {
-      throw new Error("Wallet client is unavailable.");
-    }
-
+  const claimViaWriteContract = async () => {
     if (!address) {
       throw new Error("Wallet address is unavailable.");
     }
@@ -221,17 +213,32 @@ export function ClaimWorkspace({ initialHandle = "" }: Props) {
       args: [normalizedInput],
     });
 
-    const hash = await walletClient.sendTransaction({
-      account: address as Address,
-      chain: base,
-      to: CONTRACT_ADDRESS,
-      data,
+    console.log("[claim] writeContractAsync called", {
+      chainId: base.id,
+      address,
+      handle: normalizedInput,
     });
 
+    const hash = await writeContractAsync({
+      abi: usernameAbi,
+      address: CONTRACT_ADDRESS,
+      functionName: "claim",
+      args: [normalizedInput],
+      chainId: base.id,
+    });
+
+    console.log("[claim] writeContractAsync returned", { hash, data });
     return hash;
   };
 
   const runClaim = async () => {
+    console.log("[claim] click event fired", {
+      isConnected,
+      onBase,
+      normalizedInput,
+      availability: availability.status,
+    });
+
     if (!isConnected) {
       setActionMessage("Connect a wallet before submitting a claim.");
       return;
@@ -266,20 +273,34 @@ export function ClaimWorkspace({ initialHandle = "" }: Props) {
     setActionMessage("Opening wallet confirmation...");
 
     try {
-      const hash = await claimViaInjectedWallet();
+      console.log("[claim] preparing claim transaction");
+
+      if (!onBase) {
+        console.log("[claim] switching chain to Base");
+        await switchChainAsync({ chainId: base.id });
+      }
+
+      console.log("[claim] calling writeContractAsync now");
+      const hash = await claimViaWriteContract();
       setActiveHash(hash);
       setActionMessage("Transaction submitted. Waiting for Base confirmation...");
     } catch (claimError) {
+      console.log("[claim] transaction failed", claimError);
       setIsSubmittingClaim(false);
+      resetWrite();
       setActionMessage(claimError instanceof Error ? claimError.message : "Unable to open the claim request.");
+      if (typeof window !== "undefined") {
+        window.open("https://walletconnect.com", "_blank", "noopener,noreferrer");
+      }
     }
   };
 
-  const canClaim = isConnected && handleIsValid && !userOwnsName && !isSubmittingClaim && !receipt.isPending;
+  const canClaim = isConnected && handleIsValid && !userOwnsName && !isSubmittingClaim && !receipt.isPending && !isWriting && !isSwitchingChain;
   const handleInputChange = (value: string) => {
     if (activeHash || isSubmittingClaim || receipt.isPending || receipt.isError) {
       setActiveHash(undefined);
       setIsSubmittingClaim(false);
+      resetWrite();
     }
     setInput(value);
   };
@@ -291,7 +312,7 @@ export function ClaimWorkspace({ initialHandle = "" }: Props) {
       <AvailabilityIndicator status={availability.status === "error" ? "invalid" : availability.status} detail={availability.detail} />
 
       <ActionBar>
-        <ClaimUsernameButton busy={isSubmittingClaim || receipt.isPending} disabled={!canClaim} onClick={runClaim} />
+        <ClaimUsernameButton busy={isSubmittingClaim || receipt.isPending || isWriting || isSwitchingChain} disabled={!canClaim} onClick={() => void runClaim()} />
         <Link className="ghost-link" href={normalizedInput ? `/usernames/${normalizedInput}` : "/registry"}>
           View Detail
         </Link>
@@ -341,10 +362,6 @@ export function ClaimWorkspace({ initialHandle = "" }: Props) {
           This wallet already holds <strong>@{ownedName}</strong>. The current contract keeps a single visible username record for the address.
         </p>
       ) : null}
-      {isOkxWallet ? <p className="feedback neutral">OKX Wallet detected. Using its native transaction flow.</p> : null}
     </div>
   );
 }
-
-
-
