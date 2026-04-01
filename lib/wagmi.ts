@@ -15,7 +15,7 @@ if (process.env.NODE_ENV !== "production" && generatedDataSuffix !== BUILDER_DAT
 
 export const wagmiConfig = createConfig({
   chains: [base],
-  multiInjectedProviderDiscovery: false,
+  multiInjectedProviderDiscovery: true,
   connectors: [injected()],
   ssr: true,
   transports: {

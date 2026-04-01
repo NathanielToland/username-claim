@@ -8,7 +8,7 @@ import {
   useReadContract,
   useSwitchChain,
   useWaitForTransactionReceipt,
-  useWriteContract,
+  useWriteContractSync,
 } from "wagmi";
 import { base } from "wagmi/chains";
 import { ActionBar } from "@/components/ActionBar";
@@ -62,7 +62,7 @@ export function ClaimWorkspace({ initialHandle = "" }: Props) {
     },
   });
 
-  const { error, isPending, writeContractAsync, reset } = useWriteContract();
+  const { error, isPending, writeContractSync, reset } = useWriteContractSync();
   const receipt = useWaitForTransactionReceipt({
     hash: activeHash,
     query: {
@@ -208,7 +208,7 @@ export function ClaimWorkspace({ initialHandle = "" }: Props) {
     reset();
   };
 
-  const runClaim = async () => {
+  const runClaim = () => {
     if (!isConnected) {
       setActionMessage("Connect a wallet before submitting a claim.");
       return;
@@ -216,11 +216,9 @@ export function ClaimWorkspace({ initialHandle = "" }: Props) {
 
     if (!onBase) {
       setActionMessage("Switching your wallet to Base. After it completes, press Claim Username again.");
-      try {
-        await switchChainAsync({ chainId: base.id });
-      } catch (switchError) {
+      void switchChainAsync({ chainId: base.id }).catch((switchError) => {
         setActionMessage(switchError instanceof Error ? switchError.message : "Switch to Base and try again.");
-      }
+      });
       return;
     }
 
@@ -240,7 +238,7 @@ export function ClaimWorkspace({ initialHandle = "" }: Props) {
     }
 
     if (availability.handle !== normalizedInput || availability.status === "idle" || availability.status === "checking") {
-      await runCheck();
+      void runCheck();
       return;
     }
 
@@ -253,15 +251,13 @@ export function ClaimWorkspace({ initialHandle = "" }: Props) {
     setActionMessage("Opening wallet confirmation...");
 
     try {
-      const hash = await writeContractAsync({
+      writeContractSync({
         abi: usernameAbi,
         address: CONTRACT_ADDRESS,
         functionName: "claim",
         args: [normalizedInput],
         chainId: base.id,
       });
-      setActiveHash(hash);
-      setActionMessage("Transaction submitted. Waiting for Base confirmation...");
     } catch (claimError) {
       setIsSubmittingClaim(false);
       setActionMessage(claimError instanceof Error ? claimError.message : "Unable to open the claim request.");
@@ -285,7 +281,7 @@ export function ClaimWorkspace({ initialHandle = "" }: Props) {
       <AvailabilityIndicator status={availability.status === "error" ? "invalid" : availability.status} detail={availability.detail} />
 
       <ActionBar>
-        <ClaimUsernameButton busy={isSubmittingClaim || receipt.isPending || isSwitchingChain} disabled={!canClaim} onClick={() => void runClaim()} />
+        <ClaimUsernameButton busy={isSubmittingClaim || receipt.isPending || isSwitchingChain} disabled={!canClaim} onClick={runClaim} />
         <Link className="ghost-link" href={normalizedInput ? `/usernames/${normalizedInput}` : "/registry"}>
           View Detail
         </Link>

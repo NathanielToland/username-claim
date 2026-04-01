@@ -7,7 +7,9 @@ export function WalletButton() {
   const { address, isConnected } = useAccount();
   const { connect, connectors, error, isPending } = useConnect();
   const { disconnect } = useDisconnect();
-  const connector = connectors.find((item) => item.type === "injected") ?? connectors[0];
+  const okxConnector = connectors.find((item) => item.name.toLowerCase().includes("okx"));
+  const injectedConnector = connectors.find((item) => item.type === "injected");
+  const connector = okxConnector ?? injectedConnector ?? connectors[0];
 
   if (isConnected) {
     return (
@@ -26,7 +28,7 @@ export function WalletButton() {
       disabled={!connector || isPending}
       title={error instanceof Error ? error.message : undefined}
     >
-      {isPending ? "Connecting..." : "Connect Wallet"}
+      {isPending ? "Connecting..." : okxConnector ? "Connect OKX Wallet" : "Connect Wallet"}
     </button>
   );
 }
