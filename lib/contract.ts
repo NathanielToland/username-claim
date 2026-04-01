@@ -1,7 +1,8 @@
 import { getAddress } from "viem";
+import { APP_NAME, BASE_APP_ID } from "@/lib/app-config";
 
-export const APP_ID = "app-001";
-export const APP_NAME = "username-claim";
+export const APP_ID = BASE_APP_ID;
+export const APP_NAME_LABEL = APP_NAME;
 export const CONTRACT_ADDRESS = getAddress("0x0f73d76a61861c2a738a7b374bbddb4d99f84883");
 
 export const usernameAbi = [

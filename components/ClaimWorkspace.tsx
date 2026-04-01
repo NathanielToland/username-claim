@@ -14,7 +14,7 @@ import { ClaimUsernameButton } from "@/components/ClaimUsernameButton";
 import { SummaryPanel } from "@/components/SummaryPanel";
 import { UsernameClaimInput } from "@/components/UsernameClaimInput";
 import { UsernameStatusChip } from "@/components/UsernameStatusChip";
-import { APP_ID, APP_NAME, CONTRACT_ADDRESS, usernameAbi } from "@/lib/contract";
+import { APP_ID, APP_NAME_LABEL, CONTRACT_ADDRESS, usernameAbi } from "@/lib/contract";
 import { isHandleValid, normalizeHandle, shortenAddress } from "@/lib/format";
 import { trackTransaction } from "@/utils/track";
 
@@ -57,7 +57,7 @@ export function ClaimWorkspace({ initialHandle = "" }: Props) {
 
   useEffect(() => {
     if (receipt.isSuccess && hash && address) {
-      trackTransaction(APP_ID, APP_NAME, address, hash);
+      trackTransaction(APP_ID, APP_NAME_LABEL, address, hash);
       void ownerQuery.refetch();
       void ownedNameQuery.refetch();
     }
@@ -166,4 +166,5 @@ export function ClaimWorkspace({ initialHandle = "" }: Props) {
     </div>
   );
 }
+
 
