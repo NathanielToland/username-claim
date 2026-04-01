@@ -1,0 +1,595 @@
+:root {
+  --background: #f8fbff;
+  --panel: #ffffff;
+  --panel-alt: #eef3f8;
+  --panel-strong: #d9e2ec;
+  --text: #0f172a;
+  --muted: #5b6b81;
+  --line: rgba(15, 23, 42, 0.12);
+  --primary: #2563eb;
+  --primary-strong: #1349bb;
+  --accent: #d9f70f;
+  --danger: #dc2626;
+  --success: #119c68;
+  --radius-lg: 28px;
+  --radius-md: 20px;
+  --radius-sm: 14px;
+  --shadow-soft: 0 18px 42px rgba(37, 99, 235, 0.1);
+  --shadow-panel: 0 10px 30px rgba(15, 23, 42, 0.06);
+  --font-sans: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: linear-gradient(180deg, #f8fbff 0%, #edf4fb 100%);
+}
+
+body {
+  margin: 0;
+  color: var(--text);
+  font-family: var(--font-sans);
+  background:
+    radial-gradient(circle at top left, rgba(217, 247, 15, 0.16), transparent 26%),
+    linear-gradient(135deg, rgba(217, 226, 236, 0.55), transparent 34%),
+    linear-gradient(180deg, #f8fbff 0%, #eef4fb 100%);
+  min-height: 100vh;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+button {
+  border: 0;
+  cursor: pointer;
+}
+
+.app-shell {
+  min-height: 100vh;
+}
+
+.bureau-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  backdrop-filter: blur(18px);
+  background: rgba(248, 251, 255, 0.84);
+  border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+}
+
+.bureau-header__inner {
+  width: min(1480px, calc(100vw - 24px));
+  margin: 0 auto;
+  display: grid;
+  gap: 12px;
+  padding: 14px 0;
+}
+
+.bureau-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.bureau-brand strong,
+.bureau-brand span {
+  display: block;
+}
+
+.bureau-brand strong {
+  font-size: 16px;
+}
+
+.bureau-brand span:last-child {
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.bureau-brand__mark {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #1b5be1 0%, #2563eb 100%);
+  color: white;
+  box-shadow: var(--shadow-soft);
+  font-weight: 800;
+}
+
+.top-tabs {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.tab-link {
+  padding: 10px 14px;
+  border-radius: 999px;
+  background: rgba(217, 226, 236, 0.55);
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.tab-link.active {
+  background: var(--text);
+  color: white;
+}
+
+.wallet-button,
+.secondary-button,
+.claim-button,
+.ghost-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 0 18px;
+  border-radius: 16px;
+  transition: transform 0.18s ease, background 0.18s ease, opacity 0.18s ease;
+}
+
+.wallet-button,
+.secondary-button {
+  background: rgba(217, 226, 236, 0.9);
+  color: var(--text);
+}
+
+.wallet-button.connected {
+  background: rgba(37, 99, 235, 0.12);
+  color: var(--primary-strong);
+}
+
+.claim-button {
+  background: linear-gradient(180deg, #2563eb 0%, #1349bb 100%);
+  color: white;
+  box-shadow: var(--shadow-soft);
+}
+
+.ghost-link {
+  color: var(--text);
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.72);
+}
+
+button:hover,
+.ghost-link:hover,
+.tab-link:hover {
+  transform: translateY(-1px);
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.page-frame {
+  width: min(1480px, calc(100vw - 24px));
+  margin: 0 auto;
+  padding: 16px 0 32px;
+}
+
+.panel {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(241, 246, 251, 0.94));
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-panel);
+  position: relative;
+  overflow: hidden;
+}
+
+.panel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(217, 226, 236, 0.3), transparent 34%);
+  pointer-events: none;
+}
+
+.panel > * {
+  position: relative;
+  z-index: 1;
+}
+
+.section-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(217, 226, 236, 0.7);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.eyebrow {
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-weight: 700;
+}
+
+.page-title {
+  margin: 14px 0 8px;
+  font-size: clamp(2rem, 6vw, 3.8rem);
+  line-height: 0.95;
+  letter-spacing: -0.05em;
+}
+
+.page-copy {
+  margin: 0;
+  color: var(--muted);
+  max-width: 42ch;
+  line-height: 1.5;
+}
+
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  background: rgba(217, 226, 236, 0.75);
+  color: var(--muted);
+}
+
+.status-chip.available,
+.status-chip.claimed {
+  background: rgba(217, 247, 15, 0.22);
+  color: #587300;
+}
+
+.status-chip.taken,
+.status-chip.invalid,
+.status-chip.error {
+  background: rgba(220, 38, 38, 0.1);
+  color: var(--danger);
+}
+
+.status-chip.pending,
+.status-chip.checking {
+  background: rgba(37, 99, 235, 0.12);
+  color: var(--primary);
+}
+
+.home-layout,
+.claim-layout {
+  display: grid;
+  gap: 16px;
+}
+
+.home-sidebar,
+.home-center,
+.registry-side,
+.claim-layout__lead,
+.claim-console,
+.availability-indicator,
+.ownership-card,
+.summary-panel,
+.empty-state,
+.activity-strip,
+.detail-hero,
+.registry-page__hero,
+.registry-table,
+.my-page__intro {
+  padding: 22px;
+}
+
+.home-sidebar__actions,
+.action-bar,
+.ownership-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.home-center__hero {
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.home-center__row,
+.summary-panel__meta,
+.availability-indicator__header,
+.activity-strip__header,
+.registry-side__head,
+.ownership-card__top,
+.detail-hero__titleRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.home-center h2,
+.ownership-card h2,
+.detail-hero h1 {
+  margin: 10px 0 0;
+  font-size: clamp(2.4rem, 8vw, 5rem);
+  line-height: 0.92;
+  letter-spacing: -0.06em;
+}
+
+.home-center p,
+.availability-indicator p,
+.summary-panel p,
+.empty-state p,
+.registry-page__hero p,
+.claim-console__hint,
+.detail-hero p {
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.home-center__grid,
+.claim-metrics,
+.detail-grid {
+  display: grid;
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.activity-strip__items,
+.registry-side__records {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.activity-strip__item,
+.registry-side__record,
+.registry-table__row {
+  display: grid;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+}
+
+.registry-side__record strong,
+.activity-strip__item strong,
+.registry-table strong,
+.claim-metrics strong,
+.summary-panel strong {
+  font-size: 1.15rem;
+}
+
+.registry-side__record span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.claim-layout__lead {
+  padding-bottom: 30px;
+}
+
+.claim-workspace {
+  display: grid;
+  gap: 16px;
+}
+
+.claim-console__header,
+.claim-console__field {
+  display: grid;
+  gap: 12px;
+}
+
+.claim-console__inputWrap {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 88px;
+  padding: 0 22px;
+  border-radius: 24px;
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  background: rgba(255, 255, 255, 0.88);
+}
+
+.claim-console__prefix {
+  font-size: 2rem;
+  font-weight: 800;
+  color: var(--primary);
+}
+
+.claim-console input {
+  width: 100%;
+  border: 0;
+  outline: none;
+  background: transparent;
+  font-size: clamp(1.5rem, 5vw, 2.8rem);
+  font-weight: 800;
+  letter-spacing: -0.05em;
+  color: var(--text);
+}
+
+.feedback {
+  margin: 0;
+  padding: 16px 18px;
+  border-radius: 18px;
+  font-size: 14px;
+  border: 1px solid transparent;
+}
+
+.feedback.success {
+  color: var(--success);
+  background: rgba(17, 156, 104, 0.08);
+  border-color: rgba(17, 156, 104, 0.14);
+}
+
+.feedback.error {
+  color: var(--danger);
+  background: rgba(220, 38, 38, 0.08);
+  border-color: rgba(220, 38, 38, 0.14);
+}
+
+.feedback.neutral {
+  color: var(--muted);
+  background: rgba(217, 226, 236, 0.5);
+  border-color: rgba(15, 23, 42, 0.06);
+}
+
+.feedback span {
+  word-break: break-all;
+}
+
+.ownership-card dl {
+  display: grid;
+  gap: 16px;
+  margin: 18px 0 0;
+}
+
+.ownership-card dt {
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.ownership-card dd {
+  margin: 0;
+  font-size: 1.02rem;
+  font-weight: 700;
+}
+
+.summary-panel strong {
+  display: block;
+  margin: 16px 0 6px;
+  font-size: clamp(1.4rem, 5vw, 2rem);
+  letter-spacing: -0.04em;
+}
+
+.empty-state h2 {
+  margin: 14px 0 6px;
+  font-size: 2rem;
+  letter-spacing: -0.04em;
+}
+
+.my-page,
+.registry-page,
+.detail-layout {
+  display: grid;
+  gap: 16px;
+}
+
+.my-username-layout {
+  display: grid;
+  gap: 16px;
+}
+
+.my-username-layout__rail {
+  display: grid;
+  gap: 16px;
+}
+
+.registry-table {
+  display: grid;
+  gap: 12px;
+}
+
+.registry-table__row {
+  transition: transform 0.18s ease, border-color 0.18s ease;
+}
+
+.registry-table__row:hover {
+  transform: translateY(-2px);
+  border-color: rgba(37, 99, 235, 0.26);
+}
+
+@media (min-width: 980px) {
+  .bureau-header__inner {
+    grid-template-columns: 280px 1fr auto;
+    align-items: center;
+    width: min(1480px, calc(100vw - 40px));
+  }
+
+  .page-frame {
+    width: min(1480px, calc(100vw - 40px));
+    padding-top: 20px;
+  }
+
+  .home-layout {
+    grid-template-columns: 320px minmax(0, 1.25fr) 320px;
+    align-items: start;
+  }
+
+  .claim-layout {
+    grid-template-columns: 320px minmax(0, 1.25fr) 320px;
+    align-items: start;
+  }
+
+  .claim-layout__lead {
+    min-height: calc(100vh - 128px);
+    position: sticky;
+    top: 104px;
+  }
+
+  .registry-side {
+    min-height: calc(100vh - 128px);
+    position: sticky;
+    top: 104px;
+  }
+
+  .home-center__grid,
+  .claim-metrics,
+  .detail-grid,
+  .my-username-layout {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .detail-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .my-page {
+    grid-template-columns: 340px minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .my-page__intro {
+    min-height: 420px;
+  }
+
+  .my-username-layout {
+    grid-template-columns: minmax(0, 1.25fr) 320px;
+  }
+
+  .registry-table__row {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    align-items: center;
+  }
+}
