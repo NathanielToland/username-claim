@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   useAccount,
+  usePublicClient,
   useReadContract,
   useWaitForTransactionReceipt,
   useWriteContract,
@@ -26,27 +27,29 @@ type Props = {
   initialHandle?: string;
 };
 
+type AvailabilityState = {
+  status: "idle" | "checking" | "available" | "taken" | "claimed" | "invalid" | "error";
+  detail: string;
+  owner?: string;
+  handle?: string;
+};
+
 export function ClaimWorkspace({ initialHandle = "" }: Props) {
   const [input, setInput] = useState(initialHandle);
   const [checkedHandle, setCheckedHandle] = useState(normalizeHandle(initialHandle));
-  const [hasChecked, setHasChecked] = useState(Boolean(initialHandle));
   const [actionMessage, setActionMessage] = useState("");
   const [activeHash, setActiveHash] = useState<`0x${string}` | undefined>();
+  const [availability, setAvailability] = useState<AvailabilityState>({
+    status: "idle",
+    detail: "Search the registry to confirm whether a handle can be claimed.",
+  });
+
   const { address, chainId, isConnected } = useAccount();
+  const publicClient = usePublicClient({ chainId: base.id });
   const { switchChainAsync, isPending: isSwitchingChain } = useSwitchChain();
   const normalizedInput = useMemo(() => normalizeHandle(input), [input]);
   const handleIsValid = isHandleValid(normalizedInput);
   const onBase = chainId === base.id;
-
-  const ownerQuery = useReadContract({
-    abi: usernameAbi,
-    address: CONTRACT_ADDRESS,
-    functionName: "ownerOfName",
-    args: checkedHandle ? [checkedHandle] : undefined,
-    query: {
-      enabled: Boolean(checkedHandle && hasChecked && handleIsValid),
-    },
-  });
 
   const ownedNameQuery = useReadContract({
     abi: usernameAbi,
@@ -58,7 +61,7 @@ export function ClaimWorkspace({ initialHandle = "" }: Props) {
     },
   });
 
-  const { data, error, isPending, writeContractAsync, reset } = useWriteContract();
+  const { error, isPending, writeContractAsync, reset } = useWriteContract();
   const receipt = useWaitForTransactionReceipt({
     hash: activeHash,
     query: {
@@ -67,58 +70,39 @@ export function ClaimWorkspace({ initialHandle = "" }: Props) {
   });
 
   useEffect(() => {
-    if (data && data !== activeHash) {
-      setActiveHash(data);
-      setActionMessage("Transaction submitted. Waiting for Base confirmation...");
-    }
-  }, [activeHash, data]);
-
-  useEffect(() => {
     if (receipt.isSuccess && activeHash && address) {
       setActionMessage("Claim confirmed and registry data refreshed.");
+      setAvailability({
+        status: "claimed",
+        detail: "Claim confirmed. The registry record is now assigned.",
+        owner: address,
+        handle: checkedHandle || normalizedInput,
+      });
       trackTransaction(APP_ID, APP_NAME_LABEL, address, activeHash);
-      void ownerQuery.refetch();
       void ownedNameQuery.refetch();
     }
-  }, [activeHash, address, ownerQuery, ownedNameQuery, receipt.isSuccess]);
+  }, [activeHash, address, checkedHandle, normalizedInput, ownedNameQuery, receipt.isSuccess]);
 
-  const owner = ownerQuery.data as string | undefined;
-  const hasOwner = Boolean(owner && owner !== zeroAddress);
   const ownedName = (ownedNameQuery.data as string | undefined) ?? "";
   const userOwnsName = ownedName.length > 0;
 
-  let availabilityStatus: "idle" | "checking" | "available" | "taken" | "claimed" | "pending" | "invalid" = "idle";
-  let detail = "Search the registry to confirm whether a handle can be claimed.";
+  useEffect(() => {
+    if (!normalizedInput) {
+      setAvailability({
+        status: "idle",
+        detail: "Search the registry to confirm whether a handle can be claimed.",
+      });
+      return;
+    }
 
-  if (normalizedInput && !handleIsValid) {
-    availabilityStatus = "invalid";
-    detail = "Use 2 to 20 characters with letters, numbers, dots, or hyphens.";
-  } else if (ownerQuery.isFetching) {
-    availabilityStatus = "checking";
-    detail = "Registry lookup in progress.";
-  } else if (hasChecked && checkedHandle && hasOwner) {
-    availabilityStatus = "taken";
-    detail = `This handle is already held by ${shortenAddress(owner)}.`;
-  } else if (hasChecked && checkedHandle && !hasOwner && handleIsValid) {
-    availabilityStatus = "available";
-    detail = "This handle is open for claim on Base.";
-  }
-
-  if (receipt.isPending || isPending || isSwitchingChain) {
-    availabilityStatus = "pending";
-    detail = isSwitchingChain
-      ? "Switching wallet network to Base."
-      : "Claim transaction submitted. Waiting for final confirmation.";
-  }
-
-  if (receipt.isSuccess && normalizedInput === checkedHandle) {
-    availabilityStatus = "claimed";
-    detail = "Claim confirmed. The registry record is now assigned.";
-  }
-
-  if (receipt.isError && activeHash) {
-    detail = "This transaction did not confirm. Review the hash and try again.";
-  }
+    if (!handleIsValid) {
+      setAvailability({
+        status: "invalid",
+        detail: "Use 2 to 20 characters with letters, numbers, dots, or hyphens.",
+        handle: normalizedInput,
+      });
+    }
+  }, [handleIsValid, normalizedInput]);
 
   const runCheck = async () => {
     if (!normalizedInput) {
@@ -128,13 +112,64 @@ export function ClaimWorkspace({ initialHandle = "" }: Props) {
 
     if (!handleIsValid) {
       setActionMessage("Use 2 to 20 characters with letters, numbers, dots, or hyphens.");
+      setAvailability({
+        status: "invalid",
+        detail: "Use 2 to 20 characters with letters, numbers, dots, or hyphens.",
+        handle: normalizedInput,
+      });
+      return;
+    }
+
+    if (!publicClient) {
+      setActionMessage("Base public client is not ready. Refresh and try again.");
+      setAvailability({
+        status: "error",
+        detail: "Base RPC is not ready yet. Refresh and try again.",
+        handle: normalizedInput,
+      });
       return;
     }
 
     setActionMessage("Checking live registry status...");
     setCheckedHandle(normalizedInput);
-    setHasChecked(true);
-    await ownerQuery.refetch();
+    setAvailability({
+      status: "checking",
+      detail: "Registry lookup in progress.",
+      handle: normalizedInput,
+    });
+
+    try {
+      const owner = (await publicClient.readContract({
+        abi: usernameAbi,
+        address: CONTRACT_ADDRESS,
+        functionName: "ownerOfName",
+        args: [normalizedInput],
+      })) as string;
+
+      if (owner && owner !== zeroAddress) {
+        setAvailability({
+          status: "taken",
+          detail: `This handle is already held by ${shortenAddress(owner)}.`,
+          owner,
+          handle: normalizedInput,
+        });
+        setActionMessage("This handle is already taken.");
+      } else {
+        setAvailability({
+          status: "available",
+          detail: "This handle is open for claim on Base.",
+          handle: normalizedInput,
+        });
+        setActionMessage("Availability confirmed. You can submit the claim now.");
+      }
+    } catch (checkError) {
+      setAvailability({
+        status: "error",
+        detail: "Unable to read the Base registry right now. Try again.",
+        handle: normalizedInput,
+      });
+      setActionMessage(checkError instanceof Error ? checkError.message : "Unable to read the Base registry right now.");
+    }
   };
 
   const resetTransactionState = () => {
@@ -174,14 +209,13 @@ export function ClaimWorkspace({ initialHandle = "" }: Props) {
       return;
     }
 
-    if (!hasChecked || checkedHandle !== normalizedInput) {
+    if (availability.handle !== normalizedInput || availability.status === "idle" || availability.status === "checking") {
       await runCheck();
-      setActionMessage("Availability refreshed. Review the status, then press claim again.");
       return;
     }
 
-    if (availabilityStatus !== "available") {
-      setActionMessage(detail);
+    if (availability.status !== "available") {
+      setActionMessage(availability.detail);
       return;
     }
 
@@ -205,9 +239,9 @@ export function ClaimWorkspace({ initialHandle = "" }: Props) {
 
   return (
     <div className="claim-workspace">
-      <UsernameClaimInput value={input} onChange={setInput} onCheck={() => void runCheck()} disabled={ownerQuery.isFetching} />
+      <UsernameClaimInput value={input} onChange={setInput} onCheck={() => void runCheck()} disabled={availability.status === "checking"} />
 
-      <AvailabilityIndicator status={availabilityStatus} detail={detail} />
+      <AvailabilityIndicator status={availability.status === "error" ? "invalid" : availability.status} detail={availability.detail} />
 
       <ActionBar>
         <ClaimUsernameButton busy={isPending || receipt.isPending || isSwitchingChain} disabled={!canClaim} onClick={() => void runClaim()} />
@@ -236,13 +270,18 @@ export function ClaimWorkspace({ initialHandle = "" }: Props) {
         <SummaryPanel
           label="Checked handle"
           value={normalizedInput ? `@${normalizedInput}` : "@pending"}
-          detail={hasChecked ? detail : "No registry lookup submitted yet."}
-          accent={<UsernameStatusChip status={availabilityStatus === "idle" ? "status" : availabilityStatus} />}
+          detail={availability.handle === normalizedInput ? availability.detail : "No registry lookup submitted yet."}
+          accent={<UsernameStatusChip status={availability.status === "error" ? "invalid" : availability.status === "idle" ? "status" : availability.status} />}
         />
       </div>
 
       {actionMessage ? <p className="feedback neutral">{actionMessage}</p> : null}
       {error ? <p className="feedback error">{error instanceof Error ? error.message : "Claim failed."}</p> : null}
+      {receipt.isPending && activeHash ? (
+        <p className="feedback neutral">
+          Pending transaction: <span>{activeHash}</span>
+        </p>
+      ) : null}
       {receipt.isError ? <p className="feedback error">This transaction did not confirm on Base. Reset the claim state and try again.</p> : null}
       {receipt.isSuccess && activeHash ? (
         <p className="feedback success">
