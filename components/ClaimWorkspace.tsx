@@ -6,9 +6,9 @@ import {
   useAccount,
   usePublicClient,
   useReadContract,
-  useWaitForTransactionReceipt,
-  useWriteContract,
   useSwitchChain,
+  useWaitForTransactionReceipt,
+  useWalletClient,
 } from "wagmi";
 import { base } from "wagmi/chains";
 import { ActionBar } from "@/components/ActionBar";
@@ -39,12 +39,14 @@ export function ClaimWorkspace({ initialHandle = "" }: Props) {
   const [checkedHandle, setCheckedHandle] = useState(normalizeHandle(initialHandle));
   const [actionMessage, setActionMessage] = useState("");
   const [activeHash, setActiveHash] = useState<`0x${string}` | undefined>();
+  const [isSubmittingClaim, setIsSubmittingClaim] = useState(false);
   const [availability, setAvailability] = useState<AvailabilityState>({
     status: "idle",
     detail: "Search the registry to confirm whether a handle can be claimed.",
   });
 
   const { address, chainId, isConnected } = useAccount();
+  const { data: walletClient } = useWalletClient();
   const publicClient = usePublicClient({ chainId: base.id });
   const { switchChainAsync, isPending: isSwitchingChain } = useSwitchChain();
   const normalizedInput = useMemo(() => normalizeHandle(input), [input]);
@@ -61,7 +63,6 @@ export function ClaimWorkspace({ initialHandle = "" }: Props) {
     },
   });
 
-  const { error, isPending, writeContractAsync, reset } = useWriteContract();
   const receipt = useWaitForTransactionReceipt({
     hash: activeHash,
     query: {
@@ -71,6 +72,7 @@ export function ClaimWorkspace({ initialHandle = "" }: Props) {
 
   useEffect(() => {
     if (receipt.isSuccess && activeHash && address) {
+      setIsSubmittingClaim(false);
       setActionMessage("Claim confirmed and registry data refreshed.");
       setAvailability({
         status: "claimed",
@@ -82,6 +84,13 @@ export function ClaimWorkspace({ initialHandle = "" }: Props) {
       void ownedNameQuery.refetch();
     }
   }, [activeHash, address, checkedHandle, normalizedInput, ownedNameQuery, receipt.isSuccess]);
+
+  useEffect(() => {
+    if (receipt.isError) {
+      setIsSubmittingClaim(false);
+      setActionMessage("This transaction did not confirm on Base. Reset the claim state and try again.");
+    }
+  }, [receipt.isError]);
 
   const ownedName = (ownedNameQuery.data as string | undefined) ?? "";
   const userOwnsName = ownedName.length > 0;
@@ -174,8 +183,8 @@ export function ClaimWorkspace({ initialHandle = "" }: Props) {
 
   const resetTransactionState = () => {
     setActiveHash(undefined);
+    setIsSubmittingClaim(false);
     setActionMessage("Claim state reset. You can check and submit again.");
-    reset();
   };
 
   const runClaim = async () => {
@@ -185,13 +194,18 @@ export function ClaimWorkspace({ initialHandle = "" }: Props) {
     }
 
     if (!onBase) {
-      setActionMessage("Switching to Base before submitting the claim...");
+      setActionMessage("Switching your wallet to Base. After it completes, press Claim Username again.");
       try {
         await switchChainAsync({ chainId: base.id });
       } catch (switchError) {
         setActionMessage(switchError instanceof Error ? switchError.message : "Switch to Base and try again.");
-        return;
       }
+      return;
+    }
+
+    if (!walletClient || !walletClient.account) {
+      setActionMessage("Wallet client is not ready. Reconnect the wallet and try again.");
+      return;
     }
 
     if (!normalizedInput) {
@@ -219,10 +233,13 @@ export function ClaimWorkspace({ initialHandle = "" }: Props) {
       return;
     }
 
+    setIsSubmittingClaim(true);
     setActionMessage("Opening wallet confirmation...");
 
     try {
-      const hash = await writeContractAsync({
+      const hash = await walletClient.writeContract({
+        account: walletClient.account,
+        chain: base,
         abi: usernameAbi,
         address: CONTRACT_ADDRESS,
         functionName: "claim",
@@ -231,11 +248,12 @@ export function ClaimWorkspace({ initialHandle = "" }: Props) {
       setActiveHash(hash);
       setActionMessage("Transaction submitted. Waiting for Base confirmation...");
     } catch (claimError) {
+      setIsSubmittingClaim(false);
       setActionMessage(claimError instanceof Error ? claimError.message : "Unable to open the claim request.");
     }
   };
 
-  const canClaim = isConnected && handleIsValid && !userOwnsName && !isPending && !receipt.isPending && !isSwitchingChain;
+  const canClaim = isConnected && handleIsValid && !userOwnsName && !isSubmittingClaim && !receipt.isPending && !isSwitchingChain;
 
   return (
     <div className="claim-workspace">
@@ -244,7 +262,7 @@ export function ClaimWorkspace({ initialHandle = "" }: Props) {
       <AvailabilityIndicator status={availability.status === "error" ? "invalid" : availability.status} detail={availability.detail} />
 
       <ActionBar>
-        <ClaimUsernameButton busy={isPending || receipt.isPending || isSwitchingChain} disabled={!canClaim} onClick={() => void runClaim()} />
+        <ClaimUsernameButton busy={isSubmittingClaim || receipt.isPending || isSwitchingChain} disabled={!canClaim} onClick={() => void runClaim()} />
         <Link className="ghost-link" href={normalizedInput ? `/usernames/${normalizedInput}` : "/registry"}>
           View Detail
         </Link>
@@ -253,7 +271,7 @@ export function ClaimWorkspace({ initialHandle = "" }: Props) {
             Open Transaction
           </a>
         ) : null}
-        {(activeHash || error || receipt.isError) ? (
+        {(activeHash || receipt.isError || isSubmittingClaim) ? (
           <button type="button" className="secondary-button" onClick={resetTransactionState}>
             Reset Claim State
           </button>
@@ -276,7 +294,6 @@ export function ClaimWorkspace({ initialHandle = "" }: Props) {
       </div>
 
       {actionMessage ? <p className="feedback neutral">{actionMessage}</p> : null}
-      {error ? <p className="feedback error">{error instanceof Error ? error.message : "Claim failed."}</p> : null}
       {receipt.isPending && activeHash ? (
         <p className="feedback neutral">
           Pending transaction: <span>{activeHash}</span>
